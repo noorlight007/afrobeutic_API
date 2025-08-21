@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+*.log
+
+# Virtual environment
+venv/
+ENV/
+env/
+.venv/
+
+# Django / REST
+*.sqlite3
+db.sqlite3
+media/
+staticfiles/
+.DS_Store
+
+# Environment variables & secrets
+.env
+*.secret
+*.key
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Coverage / Testing
+htmlcov/
+.coverage
+.coverage.*
+.cache
+.pytest_cache/
+nosetests.xml
+coverage.xml
+*.cover
+
+# Migrations (optional – only ignore if you don’t want auto-generated ones)
+# */migrations/*.py
+# !*/migrations/__init__.py
+
+# Build / Distribution
+dist/
+build/
+*.manifest
+
+# Docker
+*.pid
+*.tar
+*.sock
+*.log
