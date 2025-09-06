@@ -73,15 +73,6 @@ class TempUser(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    class Meta:
-        constraints = [
-            # allow only one active (unused, unexpired) temp record per email
-            models.UniqueConstraint(
-                fields=["email"],
-                condition=Q(is_used=False) & Q(token_expires_at__gt=timezone.now()),
-                name="uniq_active_temp_email"
-            )
-        ]
 
     @classmethod
     def create_temp(cls, *, email, password_hash, first_name, last_name, account_name="", country=None, ttl_minutes=60):
@@ -94,6 +85,43 @@ class TempUser(models.Model):
             last_name=last_name,
             account_name=account_name or f"{first_name or email.split('@')[0]}'s Account",
             country=country,
+            verification_token=token,
+            token_expires_at=timezone.now() + timezone.timedelta(minutes=ttl_minutes),
+        )
+
+
+class TempAdmin(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    # only the fields we need to create a real User + Account later
+    email      = models.CharField(max_length=128)
+    password_hash = models.CharField(max_length=128)
+    first_name = models.CharField(max_length=100)
+    last_name  = models.CharField(max_length=100)
+
+    is_platform_staff = models.BooleanField()
+    is_platform_admin = models.BooleanField()
+
+    # verification
+    verification_token = models.CharField(max_length=200, unique=True)
+    token_expires_at   = models.DateTimeField()
+    is_used            = models.BooleanField(default=False)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+    @classmethod
+    def create_temp_admin(cls, *, email, password_hash, first_name, last_name, is_platform_staff, is_platform_admin, ttl_minutes=60):
+        import secrets
+        token = secrets.token_urlsafe(32)
+        return cls.objects.create(
+            email=email.lower(),
+            password_hash=password_hash,
+            first_name=first_name,
+            last_name=last_name,
+            is_platform_staff=is_platform_staff,
+            is_platform_admin=is_platform_admin,
             verification_token=token,
             token_expires_at=timezone.now() + timezone.timedelta(minutes=ttl_minutes),
         )

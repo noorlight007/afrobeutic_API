@@ -1,24 +1,24 @@
-from django.urls import path, include, re_path
-from rest_framework import permissions
-from drf_yasg.views import get_schema_view
-from drf_yasg import openapi
+# main_app/urls.py
 
-schema_view = get_schema_view(
-   openapi.Info(
-      title="Afrobeutic APIs",
-      default_version='v1',
-      description="API documentation for Afrobeutic project",
-      terms_of_service="https://www.google.com/policies/terms/",
-      contact=openapi.Contact(email="info@afrobeutic.com"),
-      license=openapi.License(name="BSD License"),
-   ),
-   public=True,
-   permission_classes=[permissions.AllowAny],
+from django.urls import path, include
+from drf_spectacular.views import (
+    SpectacularAPIView,
+    SpectacularSwaggerView,
+    SpectacularRedocView,
 )
 
 urlpatterns = [
+    # your APIs
     path("api/v1/accounts/", include("accounts.urls", namespace="accounts")),
-    path('api/v1/swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
-    path('api/v1/redoc/', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),
-    re_path(r"^swagger(?P<format>\.json|\.yaml)$", schema_view.without_ui(cache_timeout=0), name="schema-json"),
+
+    # raw OpenAPI schema (JSON by default; add ?format=yaml for YAML)
+    # Raw OpenAPI schema (json/yaml)
+   path("api/v1/schema/", SpectacularAPIView.as_view(api_version="v1"), name="schema"),
+
+
+    # Swagger UI
+    path("api/v1/swagger/", SpectacularSwaggerView.as_view(url_name="schema"), name="schema-swagger-ui"),
+
+    # ReDoc
+    path("api/v1/redoc/", SpectacularRedocView.as_view(url_name="schema"), name="schema-redoc"),
 ]
