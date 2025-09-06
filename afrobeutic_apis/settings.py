@@ -30,7 +30,7 @@ FERNET_SECRET_KEY = os.getenv('FERNET_SECRET_KEY')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = [os.getenv('DOMAIN'), os.getenv('IP_ADDRESS')]
+ALLOWED_HOSTS = ['www.afrobeutic.com', '181.215.69.66']
 
 # Application definition
 
@@ -40,7 +40,9 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',                # DRF for APIs
     'accounts',                      # custom app
-    'drf_yasg',
+    "billing",                       # custom app
+    "drf_spectacular",
+    "drf_spectacular_sidecar",
 ]
 
 MIDDLEWARE = [
@@ -108,6 +110,22 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
+SPECTACULAR_SETTINGS = {
+    "TITLE": "Afrobeutic APIs",
+    "DESCRIPTION": "API documentation for Afrobeutic project",
+    "VERSION": "v1",
+    "TAGS": [
+        {"name": "Login", "description": "Account management endpoints"},
+        {"name": "Users", "description": "User management endpoints"},
+        {"name": "Admin", "description": "Administrative endpoints"},
+    ],
+    # The magic: inject x-tagGroups into the root of the schema
+    "POSTPROCESSING_HOOKS": [
+        "afrobeutic_apis.openapi_hooks.add_tag_groups",
+    ],
+}
+
+
 
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
@@ -139,6 +157,7 @@ JWT_ACCESS_EXP = datetime.timedelta(days=1)
 JWT_REFRESH_EXP = datetime.timedelta(days=7)
 
 REST_FRAMEWORK = {
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     'DEFAULT_THROTTLE_CLASSES': [
         'rest_framework.throttling.ScopedRateThrottle',
     ],
@@ -150,5 +169,5 @@ REST_FRAMEWORK = {
 }
 
 SITE_URL = os.getenv("SITE_URL", "https://www.afrobeutic.com")
-DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "no-reply@rd1.co.uk")
-TOKEN_TTL_MINUTES = int(os.getenv("TOKEN_TTL_MINUTES", "60"))
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "payroll.dept@rd1.co.uk")
+TOKEN_TTL_MINUTES = int(os.getenv("TOKEN_TTL_MINUTES", "10"))

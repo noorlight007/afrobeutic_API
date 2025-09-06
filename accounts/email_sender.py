@@ -30,6 +30,6 @@ def send_verification_email(temp_user):
         subject=subject,
         plain_text_content=body
     )
-    sg = SendGridAPIClient(os.environ["SENDGRID_API_KEY"])
+    sg = SendGridAPIClient(os.getenv("SENDGRID_API_KEY"))
     sg.send(message)
     return verify_url
