@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.pagination import PageNumberPagination
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.db.models import Q
 
 from .models import TempUser, User, Account, AccountUser
@@ -20,11 +21,19 @@ from .email_sender import send_verification_email
 
 # --- drf-spectacular imports (replace drf_yasg) ------------------------------
 from drf_spectacular.utils import (
+    OpenApiExample,
     extend_schema,
     OpenApiParameter,
     OpenApiResponse,
     OpenApiTypes,
     inline_serializer,
+)
+from accounts.permissions import (
+    IsPlatformAdminOrStaff,
+    IsPlatformAdminOnly,
+    IsAccountOwner,
+    IsAccountOwnerOrAdmin,
+    IsAccountOwnerAdminOrStaff,
 )
 from rest_framework import serializers as drf_serializers
 # ---------------------------------------------------------------------------
@@ -78,7 +87,7 @@ register_validation_error_schema = inline_serializer(
         # (example only; actual keys may vary)
         # Use Dict[str, str] for a simple field->error map
         "__root__": drf_serializers.DictField(
-            child=drf_serializers.CharField(),
+            child=drf_serializers.CharField(required = False),
             help_text="Field-wise validation errors"
         )
     }
@@ -98,8 +107,11 @@ rate_limited_schema = inline_serializer(
 class RegisterView(APIView):
     throttle_scope = 'register'
     throttle_classes = [ScopedRateThrottle]
+    permission_classes = [AllowAny]
+    authentication_classes = []
 
     @extend_schema(
+        auth=[],
         operation_id="auth_register",
         summary="User Registration",
         description=(
@@ -142,21 +154,113 @@ class LoginView(APIView):
     from time import time
     throttle_scope = 'login'
     throttle_classes = [ScopedRateThrottle]
+    permission_classes = [AllowAny]
+    authentication_classes = []
 
+    # @extend_schema(
+    #     operation_id="auth_login",
+    #     summary="User Login",
+    #     description="Authenticates a user and returns an access token.",
+    #     request=LoginSerializer,
+    #     responses={
+    #         status.HTTP_200_OK: OpenApiResponse(description="Login successful"),
+    #         status.HTTP_400_BAD_REQUEST: OpenApiResponse(description="Validation error"),
+    #         status.HTTP_429_TOO_MANY_REQUESTS: OpenApiResponse(
+    #             response=rate_limited_schema,
+    #             description="Rate limited"
+    #         ),
+    #     },
+    #     tags=["Login"],
+    # )
     @extend_schema(
+        auth=[],
         operation_id="auth_login",
+        tags=["Login"],
         summary="User Login",
-        description="Authenticates a user and returns an access token.",
-        request=LoginSerializer,
+        description="Authenticate with email & password. Returns access/refresh tokens and a minimal user profile.",
+        # ---- Request schema (inline, no dedicated Serializer class) ----
+        request=inline_serializer(
+            name="LoginRequest",
+            fields={
+                "email": drf_serializers.EmailField(),
+                "password": drf_serializers.CharField(write_only=True, min_length=8),
+            },
+        ),
+        # ---- Responses with inline schemas & examples ----
         responses={
-            status.HTTP_200_OK: OpenApiResponse(description="Login successful"),
-            status.HTTP_400_BAD_REQUEST: OpenApiResponse(description="Validation error"),
+            status.HTTP_200_OK: OpenApiResponse(
+                response=inline_serializer(
+                    name="LoginSuccess",
+                    fields={
+                        "access_token": drf_serializers.CharField(required = False),
+                        "refresh_token": drf_serializers.CharField(required = False),
+                        "user": inline_serializer(
+                            name="user_details",
+                            fields={
+                                "uid": drf_serializers.CharField(required = False),
+                                "email": drf_serializers.EmailField(required = False),
+                                "is_platform_staff": drf_serializers.BooleanField(required = False),
+                                "is_platform_admin": drf_serializers.BooleanField(required = False),
+                            },
+                            required = False
+                        ),
+                        "role": drf_serializers.ChoiceField(required = False, choices=["owner", "admin", "staff", "platform_admin"], help_text="User account(owner, admin, staff) , Admin account (platform_admin)"),  # e.g., "user"
+                        "account": inline_serializer(
+                            name="acc_details",
+                            fields={
+                                "id": drf_serializers.CharField(help_text="Account UUID/string ID", required = False),
+                                "name": drf_serializers.CharField(required = False),
+                                "status": drf_serializers.CharField(required = False),
+                                # Add any other fields your login actually returns, e.g.:
+                                # "status": drf_serializers.CharField(required=False),
+                                # "created_at": drf_serializers.DateTimeField(required=False),
+                            },
+                            required = False
+                        ),
+                    },
+                ),
+                description="Login successful",
+                examples=[
+                    OpenApiExample(
+                        name="Success",
+                        summary="Successful login",
+                        value={
+                            "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                            "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                            "user": {
+                                "uid": "0c9be2a6-0d2c-4e9d-9a0b-3ee77f7e9a9b",
+                                "email": "jane.doe@example.com",
+                                "is_platform_staff": False,
+                                "is_platform_admin": False
+                            },
+                            "role": "user",
+                            "account": {
+                                "id": "8a5a1d79-0ad6-49e7-8c1a-4b4b5a7f0f30",
+                                "name": "Jane's Workspace",
+                                "status": "active"
+                            }
+                        },
+                    )
+                ],
+            ),
+            status.HTTP_400_BAD_REQUEST: OpenApiResponse(
+                response=inline_serializer(
+                    name="LoginError",
+                    fields={"detail": drf_serializers.CharField(required = False)},
+                ),
+                description="Validation or credential error",
+                examples=[
+                    OpenApiExample(
+                        name="InvalidCredentials",
+                        summary="Wrong email/password",
+                        value={"detail": "Invalid credentials"},
+                    )
+                ],
+            ),
             status.HTTP_429_TOO_MANY_REQUESTS: OpenApiResponse(
-                response=rate_limited_schema,
                 description="Rate limited"
             ),
         },
-        tags=["Login"],
     )
     def post(self, request):
         s = LoginSerializer(data=request.data)
@@ -172,6 +276,7 @@ class LoginView(APIView):
 
 class VerifyView(APIView):
     @extend_schema(
+        auth=[],
         operation_id="auth_verify",
         summary="Verify email & create account",
         description="Consumes a verification token, creates User + Account, and starts a 30-day Starter trial.",
@@ -281,11 +386,19 @@ ordering_param = OpenApiParameter(
     required=False,
     default="-created_at",
 )
-
+# account_header_param = OpenApiParameter(
+#     name="X-Account-ID",
+#     type=OpenApiTypes.STR,
+#     location=OpenApiParameter.HEADER,
+#     required=False,
+#     description="Active account ID (used by AccountMembershipMiddleware). "
+#                 "If omitted and you have exactly one active membership, it will be auto-selected."
+# )
 # -----------------------------------------------------------------------------
 
 
 class ListOfAccountsView(APIView):
+    permission_classes = [IsAuthenticated, IsPlatformAdminOrStaff]
     @extend_schema(
         summary="List of accounts",
         description="Returns paginated accounts with search and ordering.",
