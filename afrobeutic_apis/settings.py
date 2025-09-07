@@ -30,7 +30,26 @@ FERNET_SECRET_KEY = os.getenv('FERNET_SECRET_KEY')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['www.afrobeutic.com', '181.215.69.66']
+ALLOWED_HOSTS = ['www.afrobeutic.com', '181.215.69.66','59.153.102.134', 'http://localhost:3000']
+
+
+# DEV ONLY — opens all origins
+CORS_ALLOW_ALL_ORIGINS = True
+
+# If you send cookies (session auth) across origins, also:
+CORS_ALLOW_CREDENTIALS = True
+
+# Allow common headers your app uses
+CORS_ALLOW_HEADERS = [
+    "accept",
+    "accept-language",
+    "content-type",
+    "origin",
+    "authorization",
+    "x-account-id",
+    "x-csrftoken",
+    "x-requested-with",
+]
 
 # Application definition
 
@@ -38,6 +57,7 @@ INSTALLED_APPS = [
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.staticfiles',
+    'corsheaders',
     'rest_framework',                # DRF for APIs
     'accounts',                      # custom app
     "billing",                       # custom app
@@ -46,9 +66,11 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',    # Adds security headers (like HTTPS redirects, HSTS)
     'django.middleware.common.CommonMiddleware',        # Handles things like APPEND_SLASH and basic request/response processing
     'django.middleware.clickjacking.XFrameOptionsMiddleware',       # Protects from clickjacking in browser apps
+    'accounts.middleware.AccountMembershipMiddleware',
 ]
 
 ROOT_URLCONF = 'afrobeutic_apis.urls'
@@ -113,7 +135,28 @@ AUTH_PASSWORD_VALIDATORS = [
 SPECTACULAR_SETTINGS = {
     "TITLE": "Afrobeutic APIs",
     "DESCRIPTION": "API documentation for Afrobeutic project",
-    "VERSION": "v1",
+    "VERSION": "0.1",
+
+    # Define Bearer/JWT for the UI
+    "SECURITY_SCHEMES": {
+        "bearerAuth": {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT",
+        }
+    },
+    # Apply Bearer to all endpoints by default
+    "SECURITY": [{"bearerAuth": []}],
+
+    # Keep auth in the Swagger UI across reloads
+    "SWAGGER_UI_SETTINGS": {
+        "persistAuthorization": True,
+    },
+
+
+    # Apply Bearer to all operations by default.
+    # You can still override per-view with @extend_schema(security=[...]).
+    "SECURITY": [{"bearerAuth": []}],
     "TAGS": [
         {"name": "Login", "description": "Account management endpoints"},
         {"name": "Users", "description": "User management endpoints"},
@@ -158,6 +201,9 @@ JWT_REFRESH_EXP = datetime.timedelta(days=7)
 
 REST_FRAMEWORK = {
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "accounts.authentication.SimpleBearerAccessTokenAuthentication",
+    ],
     'DEFAULT_THROTTLE_CLASSES': [
         'rest_framework.throttling.ScopedRateThrottle',
     ],

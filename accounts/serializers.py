@@ -53,7 +53,7 @@ class LoginSerializer(serializers.Serializer):
                         "is_platform_staff": user.is_platform_staff,
                         "is_platform_admin": user.is_platform_admin,
                     },
-                    "role": "platform",
+                    "role": "platform_admin",
                     "account": None,
                 }
             # Not platform, no memberships
