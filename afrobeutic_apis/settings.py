@@ -30,7 +30,7 @@ FERNET_SECRET_KEY = os.getenv('FERNET_SECRET_KEY')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['www.afrobeutic.com', '181.215.69.66','59.153.102.134', 'http://localhost:3000']
+ALLOWED_HOSTS = ['www.afrobeutic.com', '181.215.69.66','59.153.102.134', 'http://localhost:3000', 'http://localhost:8000','127.0.0.1']
 
 
 # DEV ONLY — opens all origins

@@ -9,13 +9,19 @@ def build_verify_url(temp_user):
     path = reverse("accounts:verify")
     return f"{settings.SITE_URL}{path}?token={temp_user.verification_token}"
 
-def send_verification_email(temp_user):
+def build_admin_verify_url(temp_user):
+    path = reverse("accounts:admin_verify")
+    return f"{settings.SITE_URL}{path}?token={temp_user.verification_token}"
+
+def send_verification_email(temp_user, is_admin: bool = None):
     # Send via SendGrid API
     # pip install sendgrid
     from sendgrid import SendGridAPIClient
     from sendgrid.helpers.mail import Mail
-
-    verify_url = build_verify_url(temp_user)
+    if is_admin:
+        verify_url = build_admin_verify_url(temp_user)
+    else:
+        verify_url = build_verify_url(temp_user)
     subject = "Verify your Afrobeutic account"
     body = (
         f"Hi {temp_user.first_name or temp_user.email},\n\n"

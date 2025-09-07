@@ -10,10 +10,10 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.db.models import Q
 
-from .models import TempUser, User, Account, AccountUser
+from .models import TempUser, User, Account, AccountUser, TempAdmin
 from billing.models import Plan, Subscription
 from .serializers import (
-    UserRegisterSerializer, VerifySerializer,
+    UserRegisterSerializer, AdminRegisterSerializer, VerifySerializer,
     AccountListItemSerializer, PaginatedAccountResponseSerializer,
     LoginSerializer
 )
@@ -144,6 +144,64 @@ class RegisterView(APIView):
             serializer.is_valid(raise_exception=True)
             temp_user = serializer.save()
             send_verification_email(temp_user)
+            return Response(
+                {"message": "Verification email sent.",
+                 "expires_in_minutes": settings.TOKEN_TTL_MINUTES},
+                status=status.HTTP_201_CREATED
+            )
+
+### Admin Registration
+class AdminRegisterView(APIView):
+    throttle_scope = 'register'
+    throttle_classes = [ScopedRateThrottle]
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    @extend_schema(
+        auth=[],
+        operation_id="auth_register",
+        summary="Admin Registration",
+        description=(
+            "Creates a temporary registration record and emails a verification link. "
+            "No real user/account is created until the link is clicked."
+        ),
+        request=AdminRegisterSerializer,
+        responses={
+            status.HTTP_201_CREATED: OpenApiResponse(
+                response=register_success_schema,
+                description="Verification email sent"
+            ),
+            status.HTTP_400_BAD_REQUEST: OpenApiResponse(
+                response=register_validation_error_schema,
+                description="Validation error"
+            ),
+            status.HTTP_429_TOO_MANY_REQUESTS: OpenApiResponse(
+                response=rate_limited_schema,
+                description="Rate limited"
+            ),
+        },
+        tags=["Registration"],
+    )
+    def post(self, request):
+        if not request.data['is_platform_admin'] or not request.data['is_platform_staff']:
+            return Response(
+                {"message": "Role must be selected for platform admin"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        if not request.data['is_platform_admin'].lower() in ['true','false'] and not request.data['is_platform_staff'].lower() in ['true','false']:
+            return Response(
+                {"message": "Role must be selected for platform admin"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        with transaction.atomic():
+            serializer = AdminRegisterSerializer(
+                data=request.data,
+                context={"ttl_minutes": settings.TOKEN_TTL_MINUTES}
+            )
+            serializer.is_valid(raise_exception=True)
+            temp_user = serializer.save()
+            send_verification_email(temp_user, True)
             return Response(
                 {"message": "Verification email sent.",
                  "expires_in_minutes": settings.TOKEN_TTL_MINUTES},
@@ -309,6 +367,7 @@ class VerifyView(APIView):
 
             # Create permanent User + Account + AccountUser
             tz = country_to_tz(tmp.country)
+
             user = User.objects.create(
                 first_name=tmp.first_name,
                 last_name=tmp.last_name,
@@ -328,6 +387,64 @@ class VerifyView(APIView):
 
         return Response(
             {"message": "Email verified. Your account has been created.", "user_id": str(user.uid), "account_id": str(account.id)},
+            status=status.HTTP_200_OK
+        )
+
+
+class AdminVerifyView(APIView):
+    @extend_schema(
+        auth=[],
+        operation_id="auth_verify",
+        summary="Verify email & create account",
+        description="Consumes a verification token, creates User + Account, and starts a 30-day Starter trial.",
+        parameters=[
+            OpenApiParameter(
+                name="token",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Verification token received by email"
+            )
+        ],
+        responses={status.HTTP_200_OK: OpenApiResponse(description="Verification succeeded")},
+        tags=["Registration"],
+    )
+    def get(self, request):
+        serializer = VerifySerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        token = serializer.validated_data["token"]
+
+        # Lock the temp row to avoid double consumption
+        with transaction.atomic():
+            try:
+                tmp = TempAdmin.objects.select_for_update().get(verification_token=token, is_used=False)
+            except TempAdmin.DoesNotExist:
+                return Response({"detail": "Invalid or already used token."}, status=status.HTTP_400_BAD_REQUEST)
+
+            if tmp.token_expires_at < timezone.now():
+                return Response({"detail": "Token has expired."}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Create permanent User + Account + AccountUser
+            tz = country_to_tz(tmp.country)
+            ## ---> If admin registration
+            
+            user = User.objects.create(
+                first_name=tmp.first_name,
+                last_name=tmp.last_name,
+                email=tmp.email.lower(),
+                is_platform_staff = tmp.is_platform_staff,
+                is_platform_admin = tmp.is_platform_admin,
+                password=tmp.password_hash,  # already hashed
+                timezone=tz,
+            )
+
+            # mark used + delete the temp row
+            tmp.is_used = True
+            tmp.save(update_fields=["is_used", "updated_at"])
+            tmp.delete()
+
+        return Response(
+            {"message": "Email verified. Your Adminaccount has been created.", "user_id": str(user.uid)},
             status=status.HTTP_200_OK
         )
 

@@ -7,6 +7,7 @@ from .utils import generate_access_token, generate_refresh_token
 from rest_framework.exceptions import AuthenticationFailed
 from django.db import transaction
 from .email_sender import send_verification_email
+from django.db.models import Q
 
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
@@ -152,8 +153,9 @@ class AdminRegisterSerializer(serializers.Serializer):
     password   = serializers.CharField(min_length=8, write_only=True)
 
     # optional
-    is_platform_staff = serializers.BooleanField(required=True, allow_null=False)
-    is_platform_admin = serializers.BooleanField(required=True, allow_null=False)
+    is_platform_staff = serializers.CharField(required=True, allow_null=False)
+    is_platform_admin = serializers.CharField(required=True, allow_null=False)
+
 
     def validate_email(self, v):
         if not v:
@@ -173,8 +175,11 @@ class AdminRegisterSerializer(serializers.Serializer):
         return v
     
     def validate(self, attrs):
-        staff = attrs.get("is_platform_staff")
-        admin = attrs.get("is_platform_admin")
+        if not attrs.get("is_platform_staff") or not attrs.get("is_platform_admin"):
+            raise serializers.ValidationError("Both role flags must be provided.")
+        
+        staff = True if attrs.get("is_platform_staff").lower() == "true" else False
+        admin = True if attrs.get("is_platform_admin").lower() == "true" else False
 
         if staff is None or admin is None:
             raise serializers.ValidationError("Both role flags must be provided.")
@@ -182,6 +187,9 @@ class AdminRegisterSerializer(serializers.Serializer):
         # Enforce exactly one True
         if staff == admin:  # both True or both False
             raise serializers.ValidationError("Select exactly one role: Staff or Admin (not both).")
+        
+        attrs['admin'] = admin
+        attrs['staff'] = staff
 
         return attrs
 
@@ -193,8 +201,8 @@ class AdminRegisterSerializer(serializers.Serializer):
             password_hash=password_hash,
             first_name=validated_data["first_name"],
             last_name=validated_data["last_name"],
-            is_platform_staff=validated_data.get("is_platform_staff"),
-            is_platform_admin=validated_data.get("is_platform_admin"),
+            is_platform_staff=validated_data.get("staff"),
+            is_platform_admin=validated_data.get("admin"),
             ttl_minutes=self.context.get("ttl_minutes", 10),
         )
         return tmp
