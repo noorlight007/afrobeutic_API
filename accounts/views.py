@@ -524,28 +524,35 @@ ordering_param = OpenApiParameter(
 
 class ListOfAccountsView(APIView):
     permission_classes = [IsAuthenticated, IsPlatformAdminOrStaff]
-    # authentication_classes = [SimpleBearerAccessTokenAuthentication]
+
     @extend_schema(
         summary="List of accounts",
-        description="Returns paginated accounts with search and ordering.",
+        description="Returns paginated accounts with search and ordering. Each account includes its users with role & is_active.",
         parameters=[page_param, page_size_param, search_param, ordering_param],
         responses={200: OpenApiResponse(response=PaginatedAccountResponseSerializer)},
         tags=["Customer Accounts"],
-        
     )
     def get(self, request):
-        # Multi-tenant safety (adjust to your auth model):
-        # if getattr(request.user, "is_platform_admin", False):
-        #     qs = Account.objects.all()
-        # else:
-        #     qs = Account.objects.filter(memberships__user=request.user).distinct()
-
-        # # Optional search
-        # search = request.query_params.get("search")
-        # if search:
-        #     qs = qs.filter(Q(name__icontains=search) | Q(status__icontains=search))
-
+        # Platform admins/staff can see all accounts
         qs = Account.objects.all()
+
+        # Optional search (name/status icontains)
+        search = request.query_params.get("search")
+        if search:
+            qs = qs.filter(Q(name__icontains=search) | Q(status__icontains=search))
+
+        # Prefetch memberships + users to avoid N+1 in AccountListItemSerializer.get_users
+        qs = qs.prefetch_related(
+            Prefetch(
+                "memberships",
+                queryset=AccountUser.objects.select_related("user").only(
+                    "role", "is_active",
+                    "user__id", "user__first_name", "user__last_name", "user__email",
+                    "user__phone", "user__street", "user__city", "user__postalCode",
+                    "user__country", "user__timezone", "user__created_at",
+                ),
+            )
+        )
 
         # Safe ordering whitelist
         ordering = request.query_params.get("ordering", "-created_at")

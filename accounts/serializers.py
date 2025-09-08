@@ -214,10 +214,45 @@ class AdminRegisterSerializer(serializers.Serializer):
 class VerifySerializer(serializers.Serializer):
     token = serializers.CharField()
 
+class CurrentStatusRoleAccount(serializers.Serializer):
+    role = serializers.CharField()          # "owner" | "admin" | "staff"
+    is_active = serializers.BooleanField()  # membership status
+
+
+class AccountUsersList(serializers.Serializer):
+    id = serializers.UUIDField(source="pk")
+    first_name = serializers.CharField()
+    last_name  = serializers.CharField()
+    email      = serializers.EmailField()
+
+    # optional profile fields (can be completed later)
+    phone      = serializers.CharField()
+    street     = serializers.CharField()
+    city       = serializers.CharField()
+    postalCode = serializers.CharField()
+    country    = serializers.CharField()
+    timezone   = serializers.CharField(default="UTC")
+    created_at = serializers.DateTimeField()
+
+    account_role = serializers.SerializerMethodField()
+    @extend_schema_field(CurrentStatusRoleAccount(many=False))
+
+    def get_account_role(self, obj):
+        user_in_account = AccountUser.objects.filter(user=obj)
+
+        return CurrentStatusRoleAccount(user_in_account.first(), many=False).data
+
+
 class AccountListItemSerializer(serializers.Serializer):
     id = serializers.UUIDField(source="pk")
     name = serializers.CharField()
     status = serializers.CharField()
+    users = serializers.SerializerMethodField()
+    @extend_schema_field(AccountUsersList(many=True))
+
+    def get_users(self, obj):
+        ## Here list of users will be shown based on AccountUsersList serializer..
+
     created_at = serializers.DateTimeField()
 
 class UserAccountMembershipSerializer(serializers.Serializer):
@@ -250,7 +285,7 @@ class UserListItemSerializer(serializers.Serializer):
         memberships = getattr(obj, "memberships", None)
         if memberships is None:
             # Fallback if related_name wasn't set; avoid blowing up
-            from .models import AccountUser
+            # from .models import AccountUser
             memberships = AccountUser.objects.filter(user=obj).select_related("account")
 
         return UserAccountMembershipSerializer(memberships.all(), many=True).data
