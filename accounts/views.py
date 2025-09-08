@@ -8,15 +8,18 @@ from rest_framework import status
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from django.db.models import Q
+from django.db.models import Q, Prefetch
 
 from .models import TempUser, User, Account, AccountUser, TempAdmin
 from billing.models import Plan, Subscription
 from .serializers import (
     UserRegisterSerializer, AdminRegisterSerializer, VerifySerializer,
     AccountListItemSerializer, PaginatedAccountResponseSerializer,
-    LoginSerializer
+    LoginSerializer, UserListItemSerializer, PaginatedUserResponseSerializer
 )
+
+from accounts.authentication import SimpleBearerAccessTokenAuthentication
+
 from .email_sender import send_verification_email
 
 # --- drf-spectacular imports (replace drf_yasg) ------------------------------
@@ -152,15 +155,18 @@ class RegisterView(APIView):
 
 ### Admin Registration
 class AdminRegisterView(APIView):
+    # permission_classes = [IsAuthenticated, IsPlatformAdminOrStaff]
     throttle_scope = 'register'
     throttle_classes = [ScopedRateThrottle]
     permission_classes = [AllowAny]
     authentication_classes = []
+    
+    # authentication_classes = [SimpleBearerAccessTokenAuthentication]
 
     @extend_schema(
-        auth=[],
-        operation_id="auth_register",
-        summary="Admin Registration",
+        # auth=[],
+        operation_id="admin_auth_register",
+        summary="Create new Admin",
         description=(
             "Creates a temporary registration record and emails a verification link. "
             "No real user/account is created until the link is clicked."
@@ -180,7 +186,7 @@ class AdminRegisterView(APIView):
                 description="Rate limited"
             ),
         },
-        tags=["Registration"],
+        tags=["Admins - Registration"],
     )
     def post(self, request):
         if not request.data['is_platform_admin'] or not request.data['is_platform_staff']:
@@ -201,7 +207,8 @@ class AdminRegisterView(APIView):
             )
             serializer.is_valid(raise_exception=True)
             temp_user = serializer.save()
-            send_verification_email(temp_user, True)
+            # TODO
+            # send_verification_email(temp_user, True)
             return Response(
                 {"message": "Verification email sent.",
                  "expires_in_minutes": settings.TOKEN_TTL_MINUTES},
@@ -233,8 +240,8 @@ class LoginView(APIView):
     @extend_schema(
         auth=[],
         operation_id="auth_login",
-        tags=["Login"],
-        summary="User Login",
+        tags=["Login", "Admins - Login"],
+        summary="User/Admin Login",
         description="Authenticate with email & password. Returns access/refresh tokens and a minimal user profile.",
         # ---- Request schema (inline, no dedicated Serializer class) ----
         request=inline_serializer(
@@ -257,14 +264,14 @@ class LoginView(APIView):
                             fields={
                                 "uid": drf_serializers.CharField(required = False),
                                 "email": drf_serializers.EmailField(required = False),
-                                "is_platform_staff": drf_serializers.BooleanField(required = False),
-                                "is_platform_admin": drf_serializers.BooleanField(required = False),
+                                "is_platform_staff": drf_serializers.BooleanField(required = False, default = False, help_text = 'If platform admin, role "Staff" -> True'),
+                                "is_platform_admin": drf_serializers.BooleanField(required = False, default = False, help_text = 'If platform admin, role "Admin" -> True'),
                             },
                             required = False
                         ),
                         "role": drf_serializers.ChoiceField(required = False, choices=["owner", "admin", "staff", "platform_admin"], help_text="User account(owner, admin, staff) , Admin account (platform_admin)"),  # e.g., "user"
                         "account": inline_serializer(
-                            name="acc_details",
+                            name="user_account_details",
                             fields={
                                 "id": drf_serializers.CharField(help_text="Account UUID/string ID", required = False),
                                 "name": drf_serializers.CharField(required = False),
@@ -333,6 +340,8 @@ class LoginView(APIView):
 
 
 class VerifyView(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
     @extend_schema(
         auth=[],
         operation_id="auth_verify",
@@ -392,9 +401,11 @@ class VerifyView(APIView):
 
 
 class AdminVerifyView(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
     @extend_schema(
         auth=[],
-        operation_id="auth_verify",
+        operation_id="admin_auth_verify",
         summary="Verify email & create account",
         description="Consumes a verification token, creates User + Account, and starts a 30-day Starter trial.",
         parameters=[
@@ -407,7 +418,7 @@ class AdminVerifyView(APIView):
             )
         ],
         responses={status.HTTP_200_OK: OpenApiResponse(description="Verification succeeded")},
-        tags=["Registration"],
+        tags=["Admins - Registration"],
     )
     def get(self, request):
         serializer = VerifySerializer(data=request.query_params)
@@ -435,6 +446,7 @@ class AdminVerifyView(APIView):
                 is_platform_staff = tmp.is_platform_staff,
                 is_platform_admin = tmp.is_platform_admin,
                 password=tmp.password_hash,  # already hashed
+                country = tmp.country,
                 timezone=tz,
             )
 
@@ -516,6 +528,7 @@ ordering_param = OpenApiParameter(
 
 class ListOfAccountsView(APIView):
     permission_classes = [IsAuthenticated, IsPlatformAdminOrStaff]
+    # authentication_classes = [SimpleBearerAccessTokenAuthentication]
     @extend_schema(
         summary="List of accounts",
         description="Returns paginated accounts with search and ordering.",
@@ -549,4 +562,61 @@ class ListOfAccountsView(APIView):
         paginator = EnhancedPageNumberPagination()
         page = paginator.paginate_queryset(qs, request, view=self)
         data = AccountListItemSerializer(page, many=True).data
+        return paginator.get_paginated_response(data)
+
+
+
+class ListOfUsersView(APIView):
+    permission_classes = [IsAuthenticated, IsPlatformAdminOrStaff]
+    @extend_schema(
+        summary="List of Users",
+        description="Returns paginated accounts with search and ordering.",
+        parameters=[page_param, page_size_param, search_param, ordering_param],
+        responses={200: OpenApiResponse(response=PaginatedUserResponseSerializer)},
+        tags=["Customer Users"],
+        
+    )
+    def get(self, request):
+        # Multi-tenant safety (adjust to your auth model):
+        # if getattr(request.user, "is_platform_admin", False) or getattr(request.user, "is_platform_admin", False):
+        #     qs = User.objects.all()
+        # else:
+        #     qs = User.objects.filter(memberships__user=request.user).distinct()
+
+
+
+        qs = User.objects.exclude(
+            Q(is_platform_admin=True) | Q(is_platform_staff=True)
+        )
+
+        # qs = User.objects.all()
+
+        # Optional search
+        search = request.query_params.get("search")
+        if search:
+            qs = qs.filter(Q(first_name__icontains=search) | Q(last_name__icontains=search) | Q(email__icontains=search)
+                            | Q(country__icontains=search))
+
+        # prefetch memberships -> account to avoid N+1
+        qs = qs.prefetch_related(
+            Prefetch(
+                "memberships",
+                queryset=AccountUser.objects.select_related("account").only(
+                    "role", "is_active", "account__id", "account__name"
+                ),
+            )
+        )
+        # qs = User.objects.all()
+
+        # Safe ordering whitelist
+        ordering = request.query_params.get("ordering", "-created_at")
+        allowed = {"name", "-name", "created_at", "-created_at", "status", "-status"}
+        if ordering not in allowed:
+            ordering = "-created_at"
+        qs = qs.order_by(ordering)
+
+        # Pagination
+        paginator = EnhancedPageNumberPagination()
+        page = paginator.paginate_queryset(qs, request, view=self)
+        data = UserListItemSerializer(page, many=True).data
         return paginator.get_paginated_response(data)

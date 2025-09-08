@@ -59,10 +59,10 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'corsheaders',
     'rest_framework',                # DRF for APIs
-    'accounts',                      # custom app
     "billing",                       # custom app
     "drf_spectacular",
     "drf_spectacular_sidecar",
+    'accounts.apps.AccountsConfig',
 ]
 
 MIDDLEWARE = [
@@ -137,26 +137,12 @@ SPECTACULAR_SETTINGS = {
     "DESCRIPTION": "API documentation for Afrobeutic project",
     "VERSION": "0.1",
 
-    # Define Bearer/JWT for the UI
-    "SECURITY_SCHEMES": {
-        "bearerAuth": {
-            "type": "http",
-            "scheme": "bearer",
-            "bearerFormat": "JWT",
-        }
+    'SECURITY_SCHEMES': {
+        'bearerAuth': {'type': 'http', 'scheme': 'bearer', 'bearerFormat': 'JWT'}
     },
-    # Apply Bearer to all endpoints by default
-    "SECURITY": [{"bearerAuth": []}],
+    'SECURITY': [{'bearerAuth': []}],
+    'SWAGGER_UI_SETTINGS': {'persistAuthorization': True},
 
-    # Keep auth in the Swagger UI across reloads
-    "SWAGGER_UI_SETTINGS": {
-        "persistAuthorization": True,
-    },
-
-
-    # Apply Bearer to all operations by default.
-    # You can still override per-view with @extend_schema(security=[...]).
-    "SECURITY": [{"bearerAuth": []}],
     "TAGS": [
         {"name": "Login", "description": "Account management endpoints"},
         {"name": "Users", "description": "User management endpoints"},

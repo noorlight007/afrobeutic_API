@@ -14,15 +14,18 @@ import jwt
 
 from .utils import generate_access_token, decode_token
 from .models import User
+from rest_framework.permissions import AllowAny
 
 
 class RefreshTokenView(APIView):
     throttle_scope = 'refresh_token'
     throttle_classes = [ScopedRateThrottle]
+    permission_classes = [AllowAny]
+    authentication_classes = []
 
     @extend_schema(
         operation_id="auth_refresh",
-        tags=["Auth"],
+        tags=["Auth", "Admins - Auth"],
         summary="Access Token generation",
         description="Refresh the access token using a valid refresh token.",
         request=inline_serializer(
@@ -91,10 +94,12 @@ class TokenVerifyView(APIView):
     Minimal verification endpoint — validates signature & expiry.
     """
     throttle_scope = 'refresh_token'  # reuse or define a separate scope
+    permission_classes = [AllowAny]
+    authentication_classes = []
 
     @extend_schema(
         operation_id="auth_token_verify",
-        tags=["Auth"],
+        tags=["Auth", "Admins - Auth"],
         summary="Verify a token (access/refresh)",
         request=inline_serializer(
             name="TokenVerifyRequest",

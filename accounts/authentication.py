@@ -4,6 +4,16 @@ from rest_framework.exceptions import AuthenticationFailed
 from .utils import decode_token  # your renamed helpers
 from .models import User
 
+class _AuthUserAdapter:
+    def __init__(self, user):
+        self._u = user
+    @property
+    def is_authenticated(self):
+        return True
+    def __getattr__(self, name):
+        return getattr(self._u, name)
+
+
 class SimpleBearerAccessTokenAuthentication(BaseAuthentication):
     """
     Reads Authorization: Bearer <access_jwt> and authenticates the user.
@@ -38,4 +48,5 @@ class SimpleBearerAccessTokenAuthentication(BaseAuthentication):
 
         # Attach payload if you want later
         request.jwt_payload = payload
-        return (user, payload)
+        print(user)
+        return (_AuthUserAdapter(user), payload)
