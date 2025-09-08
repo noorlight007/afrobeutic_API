@@ -163,9 +163,9 @@ class AdminRegisterSerializer(serializers.Serializer):
         if not v:
             raise serializers.ValidationError("Email is required.")
         v = v.lower()
-        if User.objects.filter(Q(email = v) & (Q(is_platform_staff=True) | Q(is_platform_admin=True))).exists():
+        if User.objects.filter(email=v).exists():
             
-            raise serializers.ValidationError("Email already registered for a Business Admin.")
+            raise serializers.ValidationError("Email already registered")
         # deny if an active temp exists and not yet expired
         exists_active = TempAdmin.objects.filter(email=v, is_used=False, token_expires_at__gt=timezone.now()).exists()
         if exists_active:
