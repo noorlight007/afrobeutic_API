@@ -10,7 +10,8 @@ def add_tag_groups(result, generator, request, public):
     """
     # Ensure the key exists at the root
     result["x-tagGroups"] = [
-        {"name": "Users", "tags": ["Accounts", "Registration", "Login", "Auth"]},
-        {"name": "Afrobeutic Business Admin", "tags": ["Customer Accounts"]},
+        {"name": "Users - Accounts", "tags": ["Accounts", "Registration"]},
+        {"name": "Users - Authentication", "tags": ["Login", "Auth"]},
+        {"name": "Afrobeutic Business Admin", "tags": ["Admins - Registration", "Admins - Login", "Admins - Auth", "Customer Accounts", "Customer Users"]},
     ]
     return result

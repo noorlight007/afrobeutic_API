@@ -11,6 +11,7 @@ class IsPlatformAdminOnly(BasePermission):
     """2) is_platform_admin"""
     def has_permission(self, request, view):
         u = getattr(request, "user", None)
+        print(u)
         return bool(u and u.is_authenticated and getattr(u, "is_platform_admin", False))
 
 def _has_role(request, allowed: set[str]) -> bool:

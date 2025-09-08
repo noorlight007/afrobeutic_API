@@ -102,6 +102,9 @@ class TempAdmin(models.Model):
     is_platform_staff = models.BooleanField()
     is_platform_admin = models.BooleanField()
 
+    # optional at register
+    country = models.CharField(max_length=50, null=True, blank=True)
+
     # verification
     verification_token = models.CharField(max_length=200, unique=True)
     token_expires_at   = models.DateTimeField()
@@ -112,7 +115,7 @@ class TempAdmin(models.Model):
 
 
     @classmethod
-    def create_temp_admin(cls, *, email, password_hash, first_name, last_name, is_platform_staff, is_platform_admin, ttl_minutes=60):
+    def create_temp_admin(cls, *, email, password_hash, first_name, last_name, is_platform_staff, is_platform_admin, country, ttl_minutes=60):
         import secrets
         token = secrets.token_urlsafe(32)
         return cls.objects.create(
@@ -123,5 +126,6 @@ class TempAdmin(models.Model):
             is_platform_staff=is_platform_staff,
             is_platform_admin=is_platform_admin,
             verification_token=token,
+            country = country,
             token_expires_at=timezone.now() + timezone.timedelta(minutes=ttl_minutes),
         )

@@ -8,6 +8,7 @@ from rest_framework.exceptions import AuthenticationFailed
 from django.db import transaction
 from .email_sender import send_verification_email
 from django.db.models import Q
+from drf_spectacular.utils import extend_schema_field
 
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
@@ -142,7 +143,7 @@ class UserRegisterSerializer(serializers.Serializer):
             country=validated_data.get("country") or None,
             ttl_minutes=self.context.get("ttl_minutes", 10),
         )
-        send_verification_email(tmp)
+        # send_verification_email(tmp)
         return tmp
 
 class AdminRegisterSerializer(serializers.Serializer):
@@ -153,17 +154,18 @@ class AdminRegisterSerializer(serializers.Serializer):
     password   = serializers.CharField(min_length=8, write_only=True)
 
     # optional
-    is_platform_staff = serializers.CharField(required=True, allow_null=False)
-    is_platform_admin = serializers.CharField(required=True, allow_null=False)
+    is_platform_staff = serializers.CharField(required=True, allow_null=False, help_text = '"true" or "false"')
+    is_platform_admin = serializers.CharField(required=True, allow_null=False, help_text = '"true" or "false"')
 
+    country = serializers.CharField(max_length=50, required=True, allow_blank=False)
 
     def validate_email(self, v):
         if not v:
             raise serializers.ValidationError("Email is required.")
         v = v.lower()
-        if User.objects.filter(Q(email = v) & (Q(is_platform_staff=True) | Q(is_platform_admin=True))).exists():
+        if User.objects.filter(email=v).exists():
             
-            raise serializers.ValidationError("Email already registered for a Business Admin.")
+            raise serializers.ValidationError("Email already registered")
         # deny if an active temp exists and not yet expired
         exists_active = TempAdmin.objects.filter(email=v, is_used=False, token_expires_at__gt=timezone.now()).exists()
         if exists_active:
@@ -203,6 +205,7 @@ class AdminRegisterSerializer(serializers.Serializer):
             last_name=validated_data["last_name"],
             is_platform_staff=validated_data.get("staff"),
             is_platform_admin=validated_data.get("admin"),
+            country = validated_data["country"],
             ttl_minutes=self.context.get("ttl_minutes", 10),
         )
         return tmp
@@ -217,6 +220,41 @@ class AccountListItemSerializer(serializers.Serializer):
     status = serializers.CharField()
     created_at = serializers.DateTimeField()
 
+class UserAccountMembershipSerializer(serializers.Serializer):
+    id = serializers.UUIDField(source="account.id")
+    name = serializers.CharField(source="account.name")
+    role = serializers.CharField()          # "owner" | "admin" | "staff"
+    is_active = serializers.BooleanField()  # membership status
+
+class UserListItemSerializer(serializers.Serializer):
+    id = serializers.UUIDField(source="pk")
+    first_name = serializers.CharField()
+    last_name  = serializers.CharField()
+    email      = serializers.EmailField()
+
+    # optional profile fields (can be completed later)
+    phone      = serializers.CharField()
+    street     = serializers.CharField()
+    city       = serializers.CharField()
+    postalCode = serializers.CharField()
+    country    = serializers.CharField()
+    timezone   = serializers.CharField(default="UTC")
+    created_at = serializers.DateTimeField()
+
+    # NEW: all accounts (via memberships)
+    accounts   = serializers.SerializerMethodField()
+    @extend_schema_field(UserAccountMembershipSerializer(many=True))
+
+    def get_accounts(self, obj):
+        # Expect related_name='memberships' on AccountUser.user
+        memberships = getattr(obj, "memberships", None)
+        if memberships is None:
+            # Fallback if related_name wasn't set; avoid blowing up
+            from .models import AccountUser
+            memberships = AccountUser.objects.filter(user=obj).select_related("account")
+
+        return UserAccountMembershipSerializer(memberships.all(), many=True).data
+
 class PaginatedAccountResponseSerializer(serializers.Serializer):
     page = serializers.IntegerField()
     page_size = serializers.IntegerField()
@@ -226,6 +264,15 @@ class PaginatedAccountResponseSerializer(serializers.Serializer):
     previous = serializers.CharField(allow_null=True)
     results = AccountListItemSerializer(many=True)
 
+
+class PaginatedUserResponseSerializer(serializers.Serializer):
+    page = serializers.IntegerField()
+    page_size = serializers.IntegerField()
+    total_pages = serializers.IntegerField()
+    total_items = serializers.IntegerField()
+    next = serializers.CharField(allow_null=True)
+    previous = serializers.CharField(allow_null=True)
+    results = UserListItemSerializer(many=True)
 
 
 
