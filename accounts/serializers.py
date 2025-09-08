@@ -219,41 +219,49 @@ class CurrentStatusRoleAccount(serializers.Serializer):
     is_active = serializers.BooleanField()  # membership status
 
 
-class AccountUsersList(serializers.Serializer):
-    id = serializers.UUIDField(source="pk")
-    first_name = serializers.CharField()
-    last_name  = serializers.CharField()
-    email      = serializers.EmailField()
+class AccountUserInlineSerializer(serializers.Serializer):
+    # pull user fields from the related user object
+    id         = serializers.UUIDField(source="user.pk")
+    first_name = serializers.CharField(source="user.first_name")
+    last_name  = serializers.CharField(source="user.last_name")
+    email      = serializers.EmailField(source="user.email")
 
-    # optional profile fields (can be completed later)
-    phone      = serializers.CharField()
-    street     = serializers.CharField()
-    city       = serializers.CharField()
-    postalCode = serializers.CharField()
-    country    = serializers.CharField()
-    timezone   = serializers.CharField(default="UTC")
-    created_at = serializers.DateTimeField()
+    # optional profile fields
+    phone      = serializers.CharField(source="user.phone")
+    street     = serializers.CharField(source="user.street")
+    city       = serializers.CharField(source="user.city")
+    postalCode = serializers.CharField(source="user.postalCode")
+    country    = serializers.CharField(source="user.country")
+    timezone   = serializers.CharField(source="user.timezone", default="UTC")
+    created_at = serializers.DateTimeField(source="user.created_at")
 
-    account_role = serializers.SerializerMethodField()
-    @extend_schema_field(CurrentStatusRoleAccount(many=False))
-
-    def get_account_role(self, obj):
-        user_in_account = AccountUser.objects.filter(user=obj)
-
-        return CurrentStatusRoleAccount(user_in_account.first(), many=False).data
+    # flattened membership fields
+    role      = serializers.CharField()          # from AccountUser.role
+    is_active = serializers.BooleanField()       # from AccountUser.is_active
 
 
 class AccountListItemSerializer(serializers.Serializer):
-    id = serializers.UUIDField(source="pk")
-    name = serializers.CharField()
+    id     = serializers.UUIDField(source="pk")
+    name   = serializers.CharField()
     status = serializers.CharField()
+
     users = serializers.SerializerMethodField()
-    @extend_schema_field(AccountUsersList(many=True))
-
-    def get_users(self, obj):
-        ## Here list of users will be shown based on AccountUsersList serializer..
-
     created_at = serializers.DateTimeField()
+
+    @extend_schema_field(AccountUserInlineSerializer(many=True))
+    def get_users(self, obj):
+        """
+        Return active memberships for this account,
+        flattening user details + membership role/is_active.
+        """
+        memberships = (
+            AccountUser.objects
+            .select_related("user")
+            .filter(account=obj, is_active=True)
+        )
+        return AccountUserInlineSerializer(memberships, many=True).data
+
+    
 
 class UserAccountMembershipSerializer(serializers.Serializer):
     id = serializers.UUIDField(source="account.id")
