@@ -155,13 +155,9 @@ class RegisterView(APIView):
 
 ### Admin Registration
 class AdminRegisterView(APIView):
-    # permission_classes = [IsAuthenticated, IsPlatformAdminOrStaff]
+    permission_classes = [IsAuthenticated, IsPlatformAdminOnly]
     throttle_scope = 'register'
     throttle_classes = [ScopedRateThrottle]
-    permission_classes = [AllowAny]
-    authentication_classes = []
-    
-    # authentication_classes = [SimpleBearerAccessTokenAuthentication]
 
     @extend_schema(
         # auth=[],
