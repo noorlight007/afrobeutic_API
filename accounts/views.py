@@ -208,7 +208,7 @@ class AdminRegisterView(APIView):
             serializer.is_valid(raise_exception=True)
             temp_user = serializer.save()
             # TODO
-            # send_verification_email(temp_user, True)
+            send_verification_email(temp_user, True)
             return Response(
                 {"message": "Verification email sent.",
                  "expires_in_minutes": settings.TOKEN_TTL_MINUTES},
