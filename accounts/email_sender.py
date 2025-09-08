@@ -5,6 +5,9 @@ load_dotenv()
 from django.conf import settings
 from django.urls import reverse
 
+from sendgrid import SendGridAPIClient
+from sendgrid.helpers.mail import Mail
+
 def build_verify_url(temp_user):
     path = reverse("accounts:verify")
     return f"{settings.SITE_URL}{path}?token={temp_user.verification_token}"
@@ -13,11 +16,10 @@ def build_admin_verify_url(temp_user):
     path = reverse("accounts:admin_verify")
     return f"{settings.SITE_URL}{path}?token={temp_user.verification_token}"
 
-def send_verification_email(temp_user, is_admin: bool = None):
+def send_verification_email(temp_user, is_admin: bool = False):
     # Send via SendGrid API
     # pip install sendgrid
-    from sendgrid import SendGridAPIClient
-    from sendgrid.helpers.mail import Mail
+    
     if is_admin:
         verify_url = build_admin_verify_url(temp_user)
     else:

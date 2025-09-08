@@ -143,7 +143,7 @@ class UserRegisterSerializer(serializers.Serializer):
             country=validated_data.get("country") or None,
             ttl_minutes=self.context.get("ttl_minutes", 10),
         )
-        send_verification_email(tmp)
+        # send_verification_email(tmp)
         return tmp
 
 class AdminRegisterSerializer(serializers.Serializer):
