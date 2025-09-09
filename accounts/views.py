@@ -10,13 +10,15 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.db.models import Q, Prefetch
 
-from .models import TempUser, User, Account, AccountUser, TempAdmin
+from .models import TempUser, User, Account, AccountUser, TempAdmin, TempInvitedUser
 from billing.models import Plan, Subscription
 from .serializers import (
     UserRegisterSerializer, AdminRegisterSerializer, VerifySerializer,
     AccountListItemSerializer, PaginatedAccountResponseSerializer,
     LoginSerializer, UserListItemSerializer, PaginatedUserResponseSerializer,
-    UsersSerializers
+    UsersSerializers,InviteUserRequestSerializer,
+    InviteUserResponseSerializer,
+    AcceptInviteRequestSerializer,
 )
 
 from accounts.authentication import SimpleBearerAccessTokenAuthentication
@@ -704,3 +706,145 @@ class UserProfileView(APIView):
         return Response(UsersSerializers(user).data, status=200)
 
 
+
+
+
+
+class InviteUserToAccountView(APIView):
+    """
+    Owner/Admin invites an existing user (by email) to the active account (from AttachAccountContext).
+    Blocks re-invite for 60 minutes while a pending invite exists.
+    """
+    permission_classes = [IsAuthenticated, AttachAccountContext, IsAccountOwnerOrAdmin]
+
+    @extend_schema(
+        operation_id="account_user_invite",
+        tags=["Customer Users"],
+        summary="Invite a user to this account",
+        description="Invite an existing user to the current account with role 'admin' or 'staff'. Blocks re-invite for 60 minutes.",
+        request=InviteUserRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=InviteUserResponseSerializer, description="Invitation sent"),
+            400: OpenApiResponse(description="Validation error"),
+            403: OpenApiResponse(description="Forbidden"),
+        },
+    )
+    @transaction.atomic
+    def post(self, request):
+        account = getattr(request, "account", None)
+        if not account:
+            return Response({"detail": "No active account selected."}, status=400)
+
+        s = InviteUserRequestSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+        email = s.validated_data["email"].strip().lower()
+        role = s.validated_data["role"].strip().lower()
+
+        # 1) user must exist
+        user = User.objects.filter(email=email, is_active=True).first()
+        if not user:
+            return Response({"detail": "User not found."}, status=400)
+
+        # 2) cannot already be a member of the account
+        already_member = AccountUser.objects.filter(account=account, user=user, is_active=True).exists()
+        if already_member:
+            return Response({"detail": "User is already a member of this account."}, status=400)
+
+        # 3) role cannot be owner (serializer already restricts to admin/staff, but keep defense-in-depth)
+        if role == "owner":
+            return Response({"detail": "You cannot invite a user as 'owner'."}, status=400)
+
+        # 4) enforce 60-min window: if a non-expired, unused invite exists -> block
+        existing = TempInvitedUser.objects.filter(
+            account=account,
+            invited_user=user,
+            is_used=False,
+        ).first()
+
+        if existing:
+            if existing.is_expired():
+                # 5) re-invite path: delete old & proceed
+                existing.delete()
+            else:
+                return Response(
+                    {"detail": "An invitation is already pending.", "expires_at": existing.expires_at},
+                    status=400
+                )
+
+        # create new invite
+        invite = TempInvitedUser.create_invite(account=account, invited_user=user, role=role, ttl_minutes=settings.TOKEN_TTL_MINUTES)
+
+        # TODO: send an email with the accept link containing invite.token
+        # send_account_invite_email(to=email, token=invite.token, account_name=account.name)
+
+        out = InviteUserResponseSerializer({"message": "Invitation sent.", "expires_at": invite.expires_at})
+        return Response(out.data, status=200)
+
+
+class AcceptAccountInvitationView(APIView):
+    """
+    Invited user accepts with a token. Creates AccountUser membership and deletes the temp invite.
+    You can expose this as GET ?token=... (public) or POST with token (authenticated).
+    Below, we keep it simple as POST; require authentication so we know who is accepting.
+    """
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        operation_id="account_user_invite_accept",
+        tags=["Customer Users"],
+        summary="Accept account invitation",
+        description="Accept an account invitation using a token. Creates membership and removes the pending invite.",
+        request=AcceptInviteRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=inline_serializer(
+                    name="AcceptInviteSuccess",
+                    fields={
+                        "message": inline_serializer(name="Msg", fields={}),
+                    },
+                ),
+                description="Invitation accepted"
+            ),
+            400: OpenApiResponse(description="Invalid or expired token"),
+        },
+    )
+    @transaction.atomic
+    def post(self, request):
+        # the authenticated user should match the invitee
+        token = request.data.get("token")
+        if not token:
+            return Response({"detail": "token is required"}, status=400)
+
+        invite = TempInvitedUser.objects.filter(token=token).first()
+        if not invite:
+            return Response({"detail": "Invalid token"}, status=400)
+
+        if invite.is_used or invite.is_expired():
+            # cleanup stale invites
+            invite.delete()
+            return Response({"detail": "Invitation expired or already used."}, status=400)
+
+        # ensure the user accepting matches the invited user
+        auth_user = getattr(request.user, "_u", request.user)  # unwrap adapter
+        if str(auth_user.pk) != str(invite.invited_user_id):
+            return Response({"detail": "This invitation does not belong to the authenticated user."}, status=400)
+
+        # if somehow they already became a member, just delete the invite
+        if AccountUser.objects.filter(account=invite.account, user=auth_user, is_active=True).exists():
+            invite.delete()
+            return Response({"message": "Already a member. Invitation removed."}, status=200)
+
+        # create membership
+        AccountUser.objects.create(
+            account=invite.account,
+            user=auth_user,
+            role=invite.role,
+            is_active=True,
+        )
+
+        # mark used & delete per your rule (delete old on accept)
+        invite.is_used = True
+        invite.save(update_fields=["is_used"])
+        invite.delete()
+
+        return Response({"message": "Invitation accepted."}, status=200)

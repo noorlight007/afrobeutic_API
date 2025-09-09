@@ -340,4 +340,13 @@ class PaginatedUserResponseSerializer(serializers.Serializer):
     results = UserListItemSerializer(many=True)
 
 
+class InviteUserRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    role = serializers.ChoiceField(choices=["admin", "staff"])
 
+class InviteUserResponseSerializer(serializers.Serializer):
+    message = serializers.CharField()
+    expires_at = serializers.DateTimeField()
+
+class AcceptInviteRequestSerializer(serializers.Serializer):
+    token = serializers.CharField()

@@ -129,3 +129,35 @@ class TempAdmin(models.Model):
             country = country,
             token_expires_at=timezone.now() + timezone.timedelta(minutes=ttl_minutes),
         )
+    
+class TempInvitedUser(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    account = models.ForeignKey('accounts.Account', on_delete=models.CASCADE, related_name='pending_invites')
+    invited_user = models.ForeignKey('accounts.User', on_delete=models.CASCADE, related_name='account_invites')
+    email = models.EmailField()  # denormalized for quick lookups
+    role = models.CharField(max_length=20)  # 'admin' | 'staff'
+    token = models.CharField(max_length=64, unique=True)
+    expires_at = models.DateTimeField()
+    is_used = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['account', 'email']),
+            models.Index(fields=['token']),
+        ]
+
+    @classmethod
+    def create_invite(cls, *, account, invited_user, role: str, ttl_minutes: int = 60):
+        token = uuid.uuid4().hex
+        return cls.objects.create(
+            account=account,
+            invited_user=invited_user,
+            email=invited_user.email.lower(),
+            role=role.strip().lower(),
+            token=token,
+            expires_at=timezone.now() + timezone.timedelta(minutes=ttl_minutes),
+        )
+
+    def is_expired(self) -> bool:
+        return self.expires_at <= timezone.now()

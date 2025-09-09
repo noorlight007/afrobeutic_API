@@ -203,3 +203,4 @@ REST_FRAMEWORK = {
 SITE_URL = os.getenv("SITE_URL", "https://www.afrobeutic.com")
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "payroll.dept@rd1.co.uk")
 TOKEN_TTL_MINUTES = int(os.getenv("TOKEN_TTL_MINUTES", "10"))
+INVITE_TTL_MINUTES = int(os.getenv("INVITE_TTL_MINUTES", "10"))
