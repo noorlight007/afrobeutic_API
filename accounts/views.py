@@ -15,7 +15,8 @@ from billing.models import Plan, Subscription
 from .serializers import (
     UserRegisterSerializer, AdminRegisterSerializer, VerifySerializer,
     AccountListItemSerializer, PaginatedAccountResponseSerializer,
-    LoginSerializer, UserListItemSerializer, PaginatedUserResponseSerializer
+    LoginSerializer, UserListItemSerializer, PaginatedUserResponseSerializer,
+    UsersSerializers
 )
 
 from accounts.authentication import SimpleBearerAccessTokenAuthentication
@@ -499,7 +500,7 @@ search_param = OpenApiParameter(
     name="search",
     type=OpenApiTypes.STR,
     location=OpenApiParameter.QUERY,
-    description="Search by name or status (icontains)",
+    description="Search by id, name or status (icontains)",
     required=False,
 )
 
@@ -539,7 +540,7 @@ class ListOfAccountsView(APIView):
         # Optional search (name/status icontains)
         search = request.query_params.get("search")
         if search:
-            qs = qs.filter(Q(name__icontains=search) | Q(status__icontains=search))
+            qs = qs.filter(Q(id__icontains=search) | Q(name__icontains=search) | Q(status__icontains=search))
 
         # Prefetch memberships + users to avoid N+1 in AccountListItemSerializer.get_users
         qs = qs.prefetch_related(
@@ -623,3 +624,19 @@ class ListOfUsersView(APIView):
         page = paginator.paginate_queryset(qs, request, view=self)
         data = UserListItemSerializer(page, many=True).data
         return paginator.get_paginated_response(data)
+    
+
+class GetUserProfileView(APIView):
+    permission_classes = [IsAuthenticated, IsAccountOwnerAdminOrStaff]
+    @extend_schema(
+        summary="Get User details",
+        description="Returns a user's details",
+        responses={200: OpenApiResponse(response=UsersSerializers)},
+        tags=["Customer Users"],
+        
+    )
+    
+    def get(self, request):
+        user = User.objects(uid = request.user.uid).first()
+
+        return UsersSerializers(user).data

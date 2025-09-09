@@ -1,7 +1,7 @@
 # accounts/urls.py
 from django.urls import path
 from .views import (ListOfAccountsView, RegisterView, VerifyView, LoginView, AdminRegisterView, AdminVerifyView,
-                    ListOfUsersView)
+                    ListOfUsersView, GetUserProfileView)
 from .views_token import RefreshTokenView, TokenVerifyView
 
 app_name = "accounts"
@@ -16,4 +16,6 @@ urlpatterns = [
     path("list/users",   ListOfUsersView.as_view(), name="list_users"),
     path("auth/token/refresh", RefreshTokenView.as_view(), name="auth_token_refresh"),
     path("auth/token/verify", TokenVerifyView.as_view(), name="auth_token_verify"),
+
+    path("users/details", GetUserProfileView.as_view(), name="users_details"),
 ]

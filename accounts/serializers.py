@@ -218,6 +218,20 @@ class CurrentStatusRoleAccount(serializers.Serializer):
     role = serializers.CharField()          # "owner" | "admin" | "staff"
     is_active = serializers.BooleanField()  # membership status
 
+class UsersSerializers(serializers.Serializer):
+    id         = serializers.UUIDField()
+    first_name = serializers.CharField()
+    last_name  = serializers.CharField()
+    email      = serializers.EmailField()
+    phone      = serializers.CharField()
+    street     = serializers.CharField()
+    city       = serializers.CharField()
+    postalCode = serializers.CharField()
+    country    = serializers.CharField()
+    timezone   = serializers.CharField()
+    is_active  = serializers.BooleanField()
+    created_at = serializers.DateTimeField()
+    
 
 class AccountUserInlineSerializer(serializers.Serializer):
     # pull user fields from the related user object
@@ -262,7 +276,6 @@ class AccountListItemSerializer(serializers.Serializer):
         return AccountUserInlineSerializer(memberships, many=True).data
 
     
-
 class UserAccountMembershipSerializer(serializers.Serializer):
     id = serializers.UUIDField(source="account.id")
     name = serializers.CharField(source="account.name")
@@ -306,6 +319,7 @@ class PaginatedAccountResponseSerializer(serializers.Serializer):
     next = serializers.CharField(allow_null=True)
     previous = serializers.CharField(allow_null=True)
     results = AccountListItemSerializer(many=True)
+
 
 
 class PaginatedUserResponseSerializer(serializers.Serializer):
