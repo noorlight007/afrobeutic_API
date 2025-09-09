@@ -349,4 +349,4 @@ class InviteUserResponseSerializer(serializers.Serializer):
     expires_at = serializers.DateTimeField()
 
 class AcceptInviteRequestSerializer(serializers.Serializer):
-    token = serializers.CharField()
+    token = serializers.CharField(help_text = "Form data or Parameter")

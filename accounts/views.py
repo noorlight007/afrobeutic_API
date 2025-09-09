@@ -23,7 +23,7 @@ from .serializers import (
 
 from accounts.authentication import SimpleBearerAccessTokenAuthentication
 
-from .email_sender import send_verification_email
+from .email_sender import send_verification_email, send_invitation_verification_email
 
 # --- drf-spectacular imports (replace drf_yasg) ------------------------------
 from drf_spectacular.utils import (
@@ -705,11 +705,6 @@ class UserProfileView(APIView):
 
         return Response(UsersSerializers(user).data, status=200)
 
-
-
-
-
-
 class InviteUserToAccountView(APIView):
     """
     Owner/Admin invites an existing user (by email) to the active account (from AttachAccountContext).
@@ -719,8 +714,8 @@ class InviteUserToAccountView(APIView):
 
     @extend_schema(
         operation_id="account_user_invite",
-        tags=["Customer Users"],
-        summary="Invite a user to this account",
+        tags=["Account access Invitation"],
+        summary="Invite a user",
         description="Invite an existing user to the current account with role 'admin' or 'staff'. Blocks re-invite for 60 minutes.",
         request=InviteUserRequestSerializer,
         responses={
@@ -773,9 +768,12 @@ class InviteUserToAccountView(APIView):
 
         # create new invite
         invite = TempInvitedUser.create_invite(account=account, invited_user=user, role=role, ttl_minutes=settings.TOKEN_TTL_MINUTES)
-
-        # TODO: send an email with the accept link containing invite.token
-        # send_account_invite_email(to=email, token=invite.token, account_name=account.name)
+        print(invite.token)
+        try:
+            # send an email with the accept link containing invite.token
+            send_invitation_verification_email(to=email, token=invite.token, account_name=account.name)
+        except:
+            print()
 
         out = InviteUserResponseSerializer({"message": "Invitation sent.", "expires_at": invite.expires_at})
         return Response(out.data, status=200)
@@ -787,11 +785,13 @@ class AcceptAccountInvitationView(APIView):
     You can expose this as GET ?token=... (public) or POST with token (authenticated).
     Below, we keep it simple as POST; require authentication so we know who is accepting.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
 
     @extend_schema(
         operation_id="account_user_invite_accept",
-        tags=["Customer Users"],
+        tags=["Account access Invitation"],
         summary="Accept account invitation",
         description="Accept an account invitation using a token. Creates membership and removes the pending invite.",
         request=AcceptInviteRequestSerializer,
@@ -811,7 +811,8 @@ class AcceptAccountInvitationView(APIView):
     @transaction.atomic
     def post(self, request):
         # the authenticated user should match the invitee
-        token = request.data.get("token")
+        token = None
+        token = request.data.get("token") if request.data.get("token") else request.query_params.get("token")
         if not token:
             return Response({"detail": "token is required"}, status=400)
 
@@ -825,9 +826,11 @@ class AcceptAccountInvitationView(APIView):
             return Response({"detail": "Invitation expired or already used."}, status=400)
 
         # ensure the user accepting matches the invited user
-        auth_user = getattr(request.user, "_u", request.user)  # unwrap adapter
-        if str(auth_user.pk) != str(invite.invited_user_id):
-            return Response({"detail": "This invitation does not belong to the authenticated user."}, status=400)
+        
+        auth_user = invite.invited_user
+        # auth_user = getattr(request.user, "_u", request.user)  # unwrap adapter
+        # if str(auth_user.pk) != str(invite.invited_user_id):
+        #     return Response({"detail": "This invitation does not belong to the authenticated user."}, status=400)
 
         # if somehow they already became a member, just delete the invite
         if AccountUser.objects.filter(account=invite.account, user=auth_user, is_active=True).exists():

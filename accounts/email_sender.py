@@ -16,6 +16,10 @@ def build_admin_verify_url(temp_user):
     path = reverse("accounts:admin_verify")
     return f"{settings.SITE_URL}{path}?token={temp_user.verification_token}"
 
+def build_verify_invitation_url(token):
+    path = reverse("accounts:account_user_invite_accept")
+    return f"{settings.SITE_URL}{path}?token={token}"
+
 def send_verification_email(temp_user, is_admin: bool = False):
     # Send via SendGrid API
     # pip install sendgrid
@@ -35,6 +39,31 @@ def send_verification_email(temp_user, is_admin: bool = False):
     message = Mail(
         from_email=settings.DEFAULT_FROM_EMAIL,
         to_emails=temp_user.email,
+        subject=subject,
+        plain_text_content=body
+    )
+    sg = SendGridAPIClient(os.getenv("SENDGRID_API_KEY"))
+    sg.send(message)
+    return verify_url
+
+
+def send_invitation_verification_email(to, token, account_name):
+    # Send via SendGrid API
+    # pip install sendgrid
+    
+    account_name = account_name
+    verify_url = build_verify_invitation_url(token)
+    subject = "Verify Invitation of an Afrobeutic account"
+    body = (
+        f"Hi,\n\n"
+        f"You have been invited to the account, named '{account_name}'. Please accept the invitation by clicking on the below link within the next hour:\n\n"
+        f"{verify_url}\n\n"
+        f"If you think this is not necessary, you can ignore this email."
+    )
+
+    message = Mail(
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        to_emails=to,
         subject=subject,
         plain_text_content=body
     )
