@@ -38,6 +38,7 @@ from accounts.permissions import (
     IsAccountOwner,
     IsAccountOwnerOrAdmin,
     IsAccountOwnerAdminOrStaff,
+    AttachAccountContext
 )
 from rest_framework import serializers as drf_serializers
 # ---------------------------------------------------------------------------
@@ -624,19 +625,154 @@ class ListOfUsersView(APIView):
         page = paginator.paginate_queryset(qs, request, view=self)
         data = UserListItemSerializer(page, many=True).data
         return paginator.get_paginated_response(data)
-    
 
-class GetUserProfileView(APIView):
-    permission_classes = [IsAuthenticated, IsAccountOwnerAdminOrStaff]
+def _real_user(u):
+    return getattr(u, "_u", u)
+
+class UserProfileView(APIView):
+    """
+    GET   -> IsAuthenticated + AttachAccountContext + IsAccountOwnerAdminOrStaff
+    PATCH -> IsAuthenticated + IsPlatformAdminOrStaff
+    """
+    # leave class-level empty; we’ll decide per method
+    permission_classes = []
+
+    def get_permissions(self):
+        if self.request.method == "GET":
+            perms = [IsAuthenticated(), AttachAccountContext(), IsAccountOwnerAdminOrStaff()]
+        elif self.request.method == "PATCH":
+            perms = [IsAuthenticated(), IsPlatformAdminOrStaff()]
+        else:
+            perms = [IsAuthenticated()]  # default fallback
+        return perms
+
     @extend_schema(
-        summary="Get User details",
-        description="Returns a user's details",
-        responses={200: OpenApiResponse(response=UsersSerializers)},
+        operation_id="user_profile_get",
         tags=["Profile"],
-        
+        summary="Get my profile",
+        description="Returns the authenticated user's profile.",
+        responses={200: OpenApiResponse(response=UsersSerializers)},
     )
-    
     def get(self, request):
         user = User.objects.filter(uid=request.user.uid).first()
+        if not user:
+            return Response({"detail": "User not found"}, status=404)
+        return Response(UsersSerializers(user).data, status=200)
+
+    @extend_schema(
+        operation_id="user_profile_update",
+        tags=["Profile"],
+        summary="Update my profile",
+        description="Update first_name, last_name, street, city, postalCode for the authenticated user.",
+        request=inline_serializer(
+            name="UserProfileUpdateRequest",
+            fields={
+                "first_name": drf_serializers.CharField(required=False, max_length=100),
+                "last_name": drf_serializers.CharField(required=False, max_length=100),
+                "street": drf_serializers.CharField(required=False, allow_blank=True, max_length=255),
+                "city": drf_serializers.CharField(required=False, allow_blank=True, max_length=120),
+                "postalCode": drf_serializers.CharField(required=False, allow_blank=True, max_length=40),
+            },
+        ),
+        responses={
+            200: OpenApiResponse(response=UsersSerializers, description="Updated profile"),
+            400: OpenApiResponse(description="Validation error"),
+        },
+    )
+    def patch(self, request):
+        user = _real_user(request.user)
+
+        allowed = {"first_name", "last_name", "street", "city", "postalCode"}
+        payload = {k: v for k, v in request.data.items() if k in allowed}
+        if not payload:
+            return Response({"detail": "No updatable fields provided."}, status=400)
+
+        errors = {}
+        if "first_name" in payload and not payload["first_name"]:
+            errors["first_name"] = "This field may not be blank."
+        if "last_name" in payload and not payload["last_name"]:
+            errors["last_name"] = "This field may not be blank."
+        if errors:
+            return Response({"detail": errors}, status=400)
+
+        for field, value in payload.items():
+            setattr(user, field, value)
+
+        with transaction.atomic():
+            user.save(update_fields=list(payload.keys()))
 
         return Response(UsersSerializers(user).data, status=200)
+    
+
+# class GetUserProfileView(APIView):
+#     # authentication_classes = [SimpleBearerAccessTokenAuthentication]
+#     permission_classes = [IsAuthenticated, AttachAccountContext, IsAccountOwnerAdminOrStaff]
+#     @extend_schema(
+#         summary="Get User details",
+#         description="Returns a user's details",
+#         responses={200: OpenApiResponse(response=UsersSerializers)},
+#         tags=["Profile"],
+        
+#     )
+    
+#     def get(self, request):
+#         user = User.objects.filter(uid=request.user.uid).first()
+
+#         return Response(UsersSerializers(user).data, status=200)
+
+
+# def _real_user(u):
+#     # unwrap your _AuthUserAdapter -> real user instance
+#     return getattr(u, "_u", u)
+
+# class UpdateUserProfileView(APIView):
+#     permission_classes = [IsAuthenticated]
+
+#     @extend_schema(
+#         operation_id="user_profile_update",
+#         tags=["Customer Users"],
+#         summary="Update my profile",
+#         description="Update first_name, last_name, street, city, postalCode for the authenticated user.",
+#         request=inline_serializer(
+#             name="UserProfileUpdateRequest",
+#             fields={
+#                 "first_name": drf_serializers.CharField(required=False, max_length=100),
+#                 "last_name": drf_serializers.CharField(required=False, max_length=100),
+#                 "street": drf_serializers.CharField(required=False, allow_blank=True, max_length=255),
+#                 "city": drf_serializers.CharField(required=False, allow_blank=True, max_length=120),
+#                 "postalCode": drf_serializers.CharField(required=False, allow_blank=True, max_length=40),
+#             },
+#         ),
+#         responses={
+#             200: OpenApiResponse(response=UsersSerializers, description="Updated profile"),
+#             400: OpenApiResponse(description="Validation error"),
+#         },
+#     )
+#     def patch(self, request):
+#         user = _real_user(request.user)
+#         # Whitelist fields
+#         allowed = {"first_name", "last_name", "street", "city", "postalCode"}
+#         payload = {k: v for k, v in request.data.items() if k in allowed}
+
+#         if not payload:
+#             return Response({"detail": "No updatable fields provided."}, status=400)
+
+#         # Basic validation (lengths etc.). If you prefer, move this to a dedicated serializer.
+#         errors = {}
+#         if "first_name" in payload and not payload["first_name"]:
+#             errors["first_name"] = "This field may not be blank."
+#         if "last_name" in payload and not payload["last_name"]:
+#             errors["last_name"] = "This field may not be blank."
+#         if errors:
+#             return Response({"detail": errors}, status=400)
+
+#         for field, value in payload.items():
+#             setattr(user, field, value)
+
+#         with transaction.atomic():
+#             user.save(update_fields=list(payload.keys()))
+
+#         return Response(UsersSerializers(user).data, status=200)
+
+
+

@@ -219,7 +219,7 @@ class CurrentStatusRoleAccount(serializers.Serializer):
     is_active = serializers.BooleanField()  # membership status
 
 class UsersSerializers(serializers.Serializer):
-    id         = serializers.UUIDField()
+    uid         = serializers.UUIDField()
     first_name = serializers.CharField()
     last_name  = serializers.CharField()
     email      = serializers.EmailField()
@@ -231,7 +231,15 @@ class UsersSerializers(serializers.Serializer):
     timezone   = serializers.CharField()
     is_active  = serializers.BooleanField()
     created_at = serializers.DateTimeField()
-    
+
+
+class UpdateUsersSerializers(serializers.Serializer):
+    first_name = serializers.CharField()
+    last_name  = serializers.CharField()
+    street     = serializers.CharField()
+    city       = serializers.CharField()
+    postalCode = serializers.CharField()
+
 
 class AccountUserInlineSerializer(serializers.Serializer):
     # pull user fields from the related user object

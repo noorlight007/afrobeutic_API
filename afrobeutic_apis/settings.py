@@ -70,7 +70,7 @@ MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',    # Adds security headers (like HTTPS redirects, HSTS)
     'django.middleware.common.CommonMiddleware',        # Handles things like APPEND_SLASH and basic request/response processing
     'django.middleware.clickjacking.XFrameOptionsMiddleware',       # Protects from clickjacking in browser apps
-    'accounts.middleware.AccountMembershipMiddleware',
+    # 'accounts.middleware.AccountMembershipMiddleware',
 ]
 
 ROOT_URLCONF = 'afrobeutic_apis.urls'
