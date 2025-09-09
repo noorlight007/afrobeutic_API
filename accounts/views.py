@@ -637,6 +637,6 @@ class GetUserProfileView(APIView):
     )
     
     def get(self, request):
-        user = User.objects(uid = request.user.uid).first()
+        user = User.objects.filter(uid=request.user.uid).first()
 
-        return UsersSerializers(user).data
+        return Response(UsersSerializers(user).data, status=200)
