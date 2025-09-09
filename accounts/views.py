@@ -632,7 +632,7 @@ class GetUserProfileView(APIView):
         summary="Get User details",
         description="Returns a user's details",
         responses={200: OpenApiResponse(response=UsersSerializers)},
-        tags=["Customer Users"],
+        tags=["Profile"],
         
     )
     

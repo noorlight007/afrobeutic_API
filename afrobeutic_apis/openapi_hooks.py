@@ -12,6 +12,7 @@ def add_tag_groups(result, generator, request, public):
     result["x-tagGroups"] = [
         {"name": "Users - Accounts", "tags": ["Accounts", "Registration"]},
         {"name": "Users - Authentication", "tags": ["Login", "Auth"]},
+        {"name": "Users - Profile", "tags": ["Profile"]},
         {"name": "Afrobeutic Business Admin", "tags": ["Admins - Registration", "Admins - Login", "Admins - Auth", "Customer Accounts", "Customer Users"]},
     ]
     return result
