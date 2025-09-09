@@ -243,7 +243,7 @@ class UpdateUsersSerializers(serializers.Serializer):
 
 class AccountUserInlineSerializer(serializers.Serializer):
     # pull user fields from the related user object
-    id         = serializers.UUIDField(source="user.pk")
+    uid        = serializers.UUIDField(source="user.pk")
     first_name = serializers.CharField(source="user.first_name")
     last_name  = serializers.CharField(source="user.last_name")
     email      = serializers.EmailField(source="user.email")
@@ -291,7 +291,7 @@ class UserAccountMembershipSerializer(serializers.Serializer):
     is_active = serializers.BooleanField()  # membership status
 
 class UserListItemSerializer(serializers.Serializer):
-    id = serializers.UUIDField(source="pk")
+    uid        = serializers.UUIDField(source="pk")
     first_name = serializers.CharField()
     last_name  = serializers.CharField()
     email      = serializers.EmailField()

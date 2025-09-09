@@ -541,7 +541,7 @@ class ListOfAccountsView(APIView):
         # Optional search (name/status icontains)
         search = request.query_params.get("search")
         if search:
-            qs = qs.filter(Q(id__icontains=search) | Q(name__icontains=search) | Q(status__icontains=search))
+            qs = qs.filter(Q(uid__icontains=search) | Q(name__icontains=search) | Q(status__icontains=search))
 
         # Prefetch memberships + users to avoid N+1 in AccountListItemSerializer.get_users
         qs = qs.prefetch_related(
@@ -549,7 +549,7 @@ class ListOfAccountsView(APIView):
                 "memberships",
                 queryset=AccountUser.objects.select_related("user").only(
                     "role", "is_active",
-                    "user__id", "user__first_name", "user__last_name", "user__email",
+                    "user__uid", "user__first_name", "user__last_name", "user__email",
                     "user__phone", "user__street", "user__city", "user__postalCode",
                     "user__country", "user__timezone", "user__created_at",
                 ),
