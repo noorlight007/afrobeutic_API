@@ -7,11 +7,12 @@ from .models import User
 class _AuthUserAdapter:
     def __init__(self, user):
         self._u = user
+    def __getattr__(self, name):
+        return getattr(self._u, name)
     @property
     def is_authenticated(self):
         return True
-    def __getattr__(self, name):
-        return getattr(self._u, name)
+    
 
 
 class SimpleBearerAccessTokenAuthentication(BaseAuthentication):

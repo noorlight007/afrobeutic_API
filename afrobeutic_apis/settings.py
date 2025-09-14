@@ -70,7 +70,7 @@ MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',    # Adds security headers (like HTTPS redirects, HSTS)
     'django.middleware.common.CommonMiddleware',        # Handles things like APPEND_SLASH and basic request/response processing
     'django.middleware.clickjacking.XFrameOptionsMiddleware',       # Protects from clickjacking in browser apps
-    'accounts.middleware.AccountMembershipMiddleware',
+    # 'accounts.middleware.AccountMembershipMiddleware',
 ]
 
 ROOT_URLCONF = 'afrobeutic_apis.urls'
@@ -203,3 +203,4 @@ REST_FRAMEWORK = {
 SITE_URL = os.getenv("SITE_URL", "https://www.afrobeutic.com")
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "payroll.dept@rd1.co.uk")
 TOKEN_TTL_MINUTES = int(os.getenv("TOKEN_TTL_MINUTES", "10"))
+INVITE_TTL_MINUTES = int(os.getenv("INVITE_TTL_MINUTES", "10"))

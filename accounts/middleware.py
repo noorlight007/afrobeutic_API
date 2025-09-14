@@ -22,7 +22,9 @@ class AccountMembershipMiddleware(MiddlewareMixin):
         request.account_membership = None
 
         u = getattr(request, "user", None)
+        print(u)
         if not u or not u.is_authenticated:
+            print("damn.")
             return
 
         account_id = request.META.get(self.header_key) or request.GET.get(self.query_key)

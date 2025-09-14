@@ -10,17 +10,20 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.db.models import Q, Prefetch
 
-from .models import TempUser, User, Account, AccountUser, TempAdmin
+from .models import TempUser, User, Account, AccountUser, TempAdmin, TempInvitedUser
 from billing.models import Plan, Subscription
 from .serializers import (
     UserRegisterSerializer, AdminRegisterSerializer, VerifySerializer,
     AccountListItemSerializer, PaginatedAccountResponseSerializer,
-    LoginSerializer, UserListItemSerializer, PaginatedUserResponseSerializer
+    LoginSerializer, UserListItemSerializer, PaginatedUserResponseSerializer,
+    UsersSerializers,InviteUserRequestSerializer,
+    InviteUserResponseSerializer,
+    AcceptInviteRequestSerializer,
 )
 
 from accounts.authentication import SimpleBearerAccessTokenAuthentication
 
-from .email_sender import send_verification_email
+from .email_sender import send_verification_email, send_invitation_verification_email
 
 # --- drf-spectacular imports (replace drf_yasg) ------------------------------
 from drf_spectacular.utils import (
@@ -37,6 +40,7 @@ from accounts.permissions import (
     IsAccountOwner,
     IsAccountOwnerOrAdmin,
     IsAccountOwnerAdminOrStaff,
+    AttachAccountContext
 )
 from rest_framework import serializers as drf_serializers
 # ---------------------------------------------------------------------------
@@ -499,7 +503,7 @@ search_param = OpenApiParameter(
     name="search",
     type=OpenApiTypes.STR,
     location=OpenApiParameter.QUERY,
-    description="Search by name or status (icontains)",
+    description="Search by id, name or status (icontains)",
     required=False,
 )
 
@@ -524,28 +528,35 @@ ordering_param = OpenApiParameter(
 
 class ListOfAccountsView(APIView):
     permission_classes = [IsAuthenticated, IsPlatformAdminOrStaff]
-    # authentication_classes = [SimpleBearerAccessTokenAuthentication]
+
     @extend_schema(
         summary="List of accounts",
-        description="Returns paginated accounts with search and ordering.",
+        description="Returns paginated accounts with search and ordering. Each account includes its users with role & is_active.",
         parameters=[page_param, page_size_param, search_param, ordering_param],
         responses={200: OpenApiResponse(response=PaginatedAccountResponseSerializer)},
         tags=["Customer Accounts"],
-        
     )
     def get(self, request):
-        # Multi-tenant safety (adjust to your auth model):
-        # if getattr(request.user, "is_platform_admin", False):
-        #     qs = Account.objects.all()
-        # else:
-        #     qs = Account.objects.filter(memberships__user=request.user).distinct()
-
-        # # Optional search
-        # search = request.query_params.get("search")
-        # if search:
-        #     qs = qs.filter(Q(name__icontains=search) | Q(status__icontains=search))
-
+        # Platform admins/staff can see all accounts
         qs = Account.objects.all()
+
+        # Optional search (name/status icontains)
+        search = request.query_params.get("search")
+        if search:
+            qs = qs.filter(Q(uid__icontains=search) | Q(name__icontains=search) | Q(status__icontains=search))
+
+        # Prefetch memberships + users to avoid N+1 in AccountListItemSerializer.get_users
+        qs = qs.prefetch_related(
+            Prefetch(
+                "memberships",
+                queryset=AccountUser.objects.select_related("user").only(
+                    "role", "is_active",
+                    "user__uid", "user__first_name", "user__last_name", "user__email",
+                    "user__phone", "user__street", "user__city", "user__postalCode",
+                    "user__country", "user__timezone", "user__created_at",
+                ),
+            )
+        )
 
         # Safe ordering whitelist
         ordering = request.query_params.get("ordering", "-created_at")
@@ -616,3 +627,227 @@ class ListOfUsersView(APIView):
         page = paginator.paginate_queryset(qs, request, view=self)
         data = UserListItemSerializer(page, many=True).data
         return paginator.get_paginated_response(data)
+
+def _real_user(u):
+    return getattr(u, "_u", u)
+
+class UserProfileView(APIView):
+    """
+    GET   -> IsAuthenticated + AttachAccountContext + IsAccountOwnerAdminOrStaff
+    PATCH -> IsAuthenticated + IsPlatformAdminOrStaff
+    """
+    # leave class-level empty; we’ll decide per method
+    permission_classes = []
+
+    def get_permissions(self):
+        if self.request.method == "GET":
+            perms = [IsAuthenticated(), AttachAccountContext(), IsAccountOwnerAdminOrStaff()]
+        elif self.request.method == "PATCH":
+            perms = [IsAuthenticated(), IsPlatformAdminOrStaff()]
+        else:
+            perms = [IsAuthenticated()]  # default fallback
+        return perms
+
+    @extend_schema(
+        operation_id="user_profile_get",
+        tags=["Profile"],
+        summary="Get my profile",
+        description="Returns the authenticated user's profile.",
+        responses={200: OpenApiResponse(response=UsersSerializers)},
+    )
+    def get(self, request):
+        user = User.objects.filter(uid=request.user.uid).first()
+        if not user:
+            return Response({"detail": "User not found"}, status=404)
+        return Response(UsersSerializers(user).data, status=200)
+
+    @extend_schema(
+        operation_id="user_profile_update",
+        tags=["Profile"],
+        summary="Update my profile",
+        description="Update first_name, last_name, street, city, postalCode for the authenticated user.",
+        request=inline_serializer(
+            name="UserProfileUpdateRequest",
+            fields={
+                "first_name": drf_serializers.CharField(required=False, max_length=100),
+                "last_name": drf_serializers.CharField(required=False, max_length=100),
+                "street": drf_serializers.CharField(required=False, allow_blank=True, max_length=255),
+                "city": drf_serializers.CharField(required=False, allow_blank=True, max_length=120),
+                "postalCode": drf_serializers.CharField(required=False, allow_blank=True, max_length=40),
+            },
+        ),
+        responses={
+            200: OpenApiResponse(response=UsersSerializers, description="Updated profile"),
+            400: OpenApiResponse(description="Validation error"),
+        },
+    )
+    def patch(self, request):
+        user = _real_user(request.user)
+
+        allowed = {"first_name", "last_name", "street", "city", "postalCode"}
+        payload = {k: v for k, v in request.data.items() if k in allowed}
+        if not payload:
+            return Response({"detail": "No updatable fields provided."}, status=400)
+
+        errors = {}
+        if "first_name" in payload and not payload["first_name"]:
+            errors["first_name"] = "This field may not be blank."
+        if "last_name" in payload and not payload["last_name"]:
+            errors["last_name"] = "This field may not be blank."
+        if errors:
+            return Response({"detail": errors}, status=400)
+
+        for field, value in payload.items():
+            setattr(user, field, value)
+
+        with transaction.atomic():
+            user.save(update_fields=list(payload.keys()))
+
+        return Response(UsersSerializers(user).data, status=200)
+
+class InviteUserToAccountView(APIView):
+    """
+    Owner/Admin invites an existing user (by email) to the active account (from AttachAccountContext).
+    Blocks re-invite for 60 minutes while a pending invite exists.
+    """
+    permission_classes = [IsAuthenticated, AttachAccountContext, IsAccountOwnerOrAdmin]
+
+    @extend_schema(
+        operation_id="account_user_invite",
+        tags=["Account access Invitation"],
+        summary="Invite a user",
+        description="Invite an existing user to the current account with role 'admin' or 'staff'. Blocks re-invite for 60 minutes.",
+        request=InviteUserRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=InviteUserResponseSerializer, description="Invitation sent"),
+            400: OpenApiResponse(description="Validation error"),
+            403: OpenApiResponse(description="Forbidden"),
+        },
+    )
+    @transaction.atomic
+    def post(self, request):
+        account = getattr(request, "account", None)
+        if not account:
+            return Response({"detail": "No active account selected."}, status=400)
+
+        s = InviteUserRequestSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+        email = s.validated_data["email"].strip().lower()
+        role = s.validated_data["role"].strip().lower()
+
+        # 1) user must exist
+        user = User.objects.filter(email=email, is_active=True).first()
+        if not user:
+            return Response({"detail": "User not found."}, status=400)
+
+        # 2) cannot already be a member of the account
+        already_member = AccountUser.objects.filter(account=account, user=user, is_active=True).exists()
+        if already_member:
+            return Response({"detail": "User is already a member of this account."}, status=400)
+
+        # 3) role cannot be owner (serializer already restricts to admin/staff, but keep defense-in-depth)
+        if role == "owner":
+            return Response({"detail": "You cannot invite a user as 'owner'."}, status=400)
+
+        # 4) enforce 60-min window: if a non-expired, unused invite exists -> block
+        existing = TempInvitedUser.objects.filter(
+            account=account,
+            invited_user=user,
+            is_used=False,
+        ).first()
+
+        if existing:
+            if existing.is_expired():
+                # 5) re-invite path: delete old & proceed
+                existing.delete()
+            else:
+                return Response(
+                    {"detail": "An invitation is already pending.", "expires_at": existing.expires_at},
+                    status=400
+                )
+
+        # create new invite
+        invite = TempInvitedUser.create_invite(account=account, invited_user=user, role=role, ttl_minutes=settings.TOKEN_TTL_MINUTES)
+        print(invite.token)
+        try:
+            # send an email with the accept link containing invite.token
+            send_invitation_verification_email(to=email, token=invite.token, account_name=account.name)
+        except:
+            print()
+
+        out = InviteUserResponseSerializer({"message": "Invitation sent.", "expires_at": invite.expires_at})
+        return Response(out.data, status=200)
+
+
+class AcceptAccountInvitationView(APIView):
+    """
+    Invited user accepts with a token. Creates AccountUser membership and deletes the temp invite.
+    You can expose this as GET ?token=... (public) or POST with token (authenticated).
+    Below, we keep it simple as POST; require authentication so we know who is accepting.
+    """
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+
+    @extend_schema(
+        operation_id="account_user_invite_accept",
+        tags=["Account access Invitation"],
+        summary="Accept account invitation",
+        description="Accept an account invitation using a token. Creates membership and removes the pending invite.",
+        request=AcceptInviteRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=inline_serializer(
+                    name="AcceptInviteSuccess",
+                    fields={
+                        "message": inline_serializer(name="Msg", fields={}),
+                    },
+                ),
+                description="Invitation accepted"
+            ),
+            400: OpenApiResponse(description="Invalid or expired token"),
+        },
+    )
+    @transaction.atomic
+    def post(self, request):
+        # the authenticated user should match the invitee
+        token = None
+        token = request.data.get("token") if request.data.get("token") else request.query_params.get("token")
+        if not token:
+            return Response({"detail": "token is required"}, status=400)
+
+        invite = TempInvitedUser.objects.filter(token=token).first()
+        if not invite:
+            return Response({"detail": "Invalid token"}, status=400)
+
+        if invite.is_used or invite.is_expired():
+            # cleanup stale invites
+            invite.delete()
+            return Response({"detail": "Invitation expired or already used."}, status=400)
+
+        # ensure the user accepting matches the invited user
+        
+        auth_user = invite.invited_user
+        # auth_user = getattr(request.user, "_u", request.user)  # unwrap adapter
+        # if str(auth_user.pk) != str(invite.invited_user_id):
+        #     return Response({"detail": "This invitation does not belong to the authenticated user."}, status=400)
+
+        # if somehow they already became a member, just delete the invite
+        if AccountUser.objects.filter(account=invite.account, user=auth_user, is_active=True).exists():
+            invite.delete()
+            return Response({"message": "Already a member. Invitation removed."}, status=200)
+
+        # create membership
+        AccountUser.objects.create(
+            account=invite.account,
+            user=auth_user,
+            role=invite.role,
+            is_active=True,
+        )
+
+        # mark used & delete per your rule (delete old on accept)
+        invite.is_used = True
+        invite.save(update_fields=["is_used"])
+        invite.delete()
+
+        return Response({"message": "Invitation accepted."}, status=200)

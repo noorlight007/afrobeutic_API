@@ -214,12 +214,76 @@ class AdminRegisterSerializer(serializers.Serializer):
 class VerifySerializer(serializers.Serializer):
     token = serializers.CharField()
 
-class AccountListItemSerializer(serializers.Serializer):
-    id = serializers.UUIDField(source="pk")
-    name = serializers.CharField()
-    status = serializers.CharField()
+class CurrentStatusRoleAccount(serializers.Serializer):
+    role = serializers.CharField()          # "owner" | "admin" | "staff"
+    is_active = serializers.BooleanField()  # membership status
+
+class UsersSerializers(serializers.Serializer):
+    uid         = serializers.UUIDField()
+    first_name = serializers.CharField()
+    last_name  = serializers.CharField()
+    email      = serializers.EmailField()
+    phone      = serializers.CharField()
+    street     = serializers.CharField()
+    city       = serializers.CharField()
+    postalCode = serializers.CharField()
+    country    = serializers.CharField()
+    timezone   = serializers.CharField()
+    is_active  = serializers.BooleanField()
     created_at = serializers.DateTimeField()
 
+
+class UpdateUsersSerializers(serializers.Serializer):
+    first_name = serializers.CharField()
+    last_name  = serializers.CharField()
+    street     = serializers.CharField()
+    city       = serializers.CharField()
+    postalCode = serializers.CharField()
+
+
+class AccountUserInlineSerializer(serializers.Serializer):
+    # pull user fields from the related user object
+    uid        = serializers.UUIDField(source="user.pk")
+    first_name = serializers.CharField(source="user.first_name")
+    last_name  = serializers.CharField(source="user.last_name")
+    email      = serializers.EmailField(source="user.email")
+
+    # optional profile fields
+    phone      = serializers.CharField(source="user.phone")
+    street     = serializers.CharField(source="user.street")
+    city       = serializers.CharField(source="user.city")
+    postalCode = serializers.CharField(source="user.postalCode")
+    country    = serializers.CharField(source="user.country")
+    timezone   = serializers.CharField(source="user.timezone", default="UTC")
+    created_at = serializers.DateTimeField(source="user.created_at")
+
+    # flattened membership fields
+    role      = serializers.CharField()          # from AccountUser.role
+    is_active = serializers.BooleanField()       # from AccountUser.is_active
+
+
+class AccountListItemSerializer(serializers.Serializer):
+    id     = serializers.UUIDField(source="pk")
+    name   = serializers.CharField()
+    status = serializers.CharField()
+
+    users = serializers.SerializerMethodField()
+    created_at = serializers.DateTimeField()
+
+    @extend_schema_field(AccountUserInlineSerializer(many=True))
+    def get_users(self, obj):
+        """
+        Return active memberships for this account,
+        flattening user details + membership role/is_active.
+        """
+        memberships = (
+            AccountUser.objects
+            .select_related("user")
+            .filter(account=obj, is_active=True)
+        )
+        return AccountUserInlineSerializer(memberships, many=True).data
+
+    
 class UserAccountMembershipSerializer(serializers.Serializer):
     id = serializers.UUIDField(source="account.id")
     name = serializers.CharField(source="account.name")
@@ -227,7 +291,7 @@ class UserAccountMembershipSerializer(serializers.Serializer):
     is_active = serializers.BooleanField()  # membership status
 
 class UserListItemSerializer(serializers.Serializer):
-    id = serializers.UUIDField(source="pk")
+    uid        = serializers.UUIDField(source="pk")
     first_name = serializers.CharField()
     last_name  = serializers.CharField()
     email      = serializers.EmailField()
@@ -250,7 +314,7 @@ class UserListItemSerializer(serializers.Serializer):
         memberships = getattr(obj, "memberships", None)
         if memberships is None:
             # Fallback if related_name wasn't set; avoid blowing up
-            from .models import AccountUser
+            # from .models import AccountUser
             memberships = AccountUser.objects.filter(user=obj).select_related("account")
 
         return UserAccountMembershipSerializer(memberships.all(), many=True).data
@@ -265,6 +329,7 @@ class PaginatedAccountResponseSerializer(serializers.Serializer):
     results = AccountListItemSerializer(many=True)
 
 
+
 class PaginatedUserResponseSerializer(serializers.Serializer):
     page = serializers.IntegerField()
     page_size = serializers.IntegerField()
@@ -275,4 +340,13 @@ class PaginatedUserResponseSerializer(serializers.Serializer):
     results = UserListItemSerializer(many=True)
 
 
+class InviteUserRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    role = serializers.ChoiceField(choices=["admin", "staff"])
 
+class InviteUserResponseSerializer(serializers.Serializer):
+    message = serializers.CharField()
+    expires_at = serializers.DateTimeField()
+
+class AcceptInviteRequestSerializer(serializers.Serializer):
+    token = serializers.CharField(help_text = "Form data or Parameter")
